@@ -24,7 +24,9 @@ export function VoiceRoom({ roomId, label }: VoiceRoomProps) {
   const peersRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const remoteStreamsRef = useRef<Map<string, MediaStream>>(new Map());
   const localAudioRef = useRef<HTMLAudioElement | null>(null);
+  const remoteAudioHostRef = useRef<HTMLDivElement | null>(null);
   const mountedRef = useRef(true);
+  const selfIdRef = useRef<string>("");
 
   const [selfId, setSelfId] = useState<string>("");
   const [selfName, setSelfName] = useState<string>("Operator");
@@ -61,18 +63,12 @@ export function VoiceRoom({ roomId, label }: VoiceRoomProps) {
           "Operator";
 
         if (!mountedRef.current) return;
+        selfIdRef.current = user.id;
         setSelfId(user.id);
         setSelfName(name);
 
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        localStreamRef.current = stream;
-
-        if (localAudioRef.current) {
-          localAudioRef.current.srcObject = stream;
-        }
-
         const channel = supabase.channel(`voice-room:${roomId}`, {
-          config: { presence: { key: user.id } },
+          config: { presence: { key: user.id }, broadcast: { self: false } },
         });
         channelRef.current = channel;
 
@@ -102,8 +98,15 @@ export function VoiceRoom({ roomId, label }: VoiceRoomProps) {
           })
           .subscribe(async (status) => {
             if (status !== "SUBSCRIBED") return;
-            await channel.track({ userId: user.id, name });
-            setIsConnected(true);
+            const trackStatus = await channel.track({ userId: user.id, name });
+            if (trackStatus === "ok") {
+              setIsConnected(true);
+            }
+            try {
+              await startLocalAudio(user.id);
+            } catch (mediaErr) {
+              setError(mediaErr instanceof Error ? mediaErr.message : "Mic unavailable");
+            }
           });
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to start voice chat");
@@ -137,24 +140,46 @@ export function VoiceRoom({ roomId, label }: VoiceRoomProps) {
     }
     setIsConnected(false);
     setRemotePeers([]);
+    selfIdRef.current = "";
+  }
+
+  async function startLocalAudio(userId: string) {
+    if (localStreamRef.current) return;
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    localStreamRef.current = stream;
+    if (localAudioRef.current) {
+      localAudioRef.current.srcObject = stream;
+    }
+
+    // Connect with peers already present in the room.
+    const channel = channelRef.current;
+    if (!channel) return;
+    const state = channel.presenceState<Record<string, unknown>>();
+    const peerIds = Object.keys(state).filter((id) => id !== userId);
+    for (const peerId of peerIds) {
+      if (userId < peerId && !peersRef.current.has(peerId)) {
+        await createPeer(peerId, true);
+      }
+    }
   }
 
   async function createPeer(remoteId: string, initiator: boolean) {
-    if (!localStreamRef.current) return null;
     if (peersRef.current.has(remoteId)) return peersRef.current.get(remoteId)!;
 
     const pc = new RTCPeerConnection(rtcConfig);
     peersRef.current.set(remoteId, pc);
 
-    localStreamRef.current.getTracks().forEach((track) => {
-      pc.addTrack(track, localStreamRef.current!);
-    });
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((track) => {
+        pc.addTrack(track, localStreamRef.current!);
+      });
+    }
 
     pc.onicecandidate = async (event) => {
       if (!event.candidate || !channelRef.current) return;
       const payload: SignalPayload = {
         type: "ice",
-        from: selfId,
+        from: selfIdRef.current,
         to: remoteId,
         candidate: event.candidate.toJSON(),
       };
@@ -182,7 +207,7 @@ export function VoiceRoom({ roomId, label }: VoiceRoomProps) {
       if (channelRef.current) {
         const payload: SignalPayload = {
           type: "offer",
-          from: selfId,
+          from: selfIdRef.current,
           to: remoteId,
           sdp: offer,
         };
@@ -194,8 +219,8 @@ export function VoiceRoom({ roomId, label }: VoiceRoomProps) {
   }
 
   async function onSignal(signal: SignalPayload) {
-    if (!selfId) return;
-    if (signal.to !== selfId) return;
+    if (!selfIdRef.current) return;
+    if (signal.to !== selfIdRef.current) return;
 
     if (signal.type === "offer") {
       const pc = (await createPeer(signal.from, false))!;
@@ -205,7 +230,7 @@ export function VoiceRoom({ roomId, label }: VoiceRoomProps) {
       if (channelRef.current) {
         const payload: SignalPayload = {
           type: "answer",
-          from: selfId,
+          from: selfIdRef.current,
           to: signal.from,
           sdp: answer,
         };
@@ -232,7 +257,7 @@ export function VoiceRoom({ roomId, label }: VoiceRoomProps) {
   }
 
   function renderRemoteAudio() {
-    const host = document.getElementById("remote-audio-host");
+    const host = remoteAudioHostRef.current;
     if (!host) return;
     host.innerHTML = "";
     for (const [id, stream] of remoteStreamsRef.current.entries()) {
@@ -287,7 +312,7 @@ export function VoiceRoom({ roomId, label }: VoiceRoomProps) {
         </div>
 
         <audio ref={localAudioRef} autoPlay muted playsInline />
-        <div id="remote-audio-host" />
+        <div ref={remoteAudioHostRef} />
       </div>
     </section>
   );
