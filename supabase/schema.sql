@@ -77,6 +77,7 @@ create policy "combatants_delete_own"
 create table if not exists public.tournaments (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
+  participant_ids jsonb not null default '[]'::jsonb,
   name text not null,
   mode text not null check (mode in ('knockout', 'league')),
   status text not null default 'active' check (status in ('active', 'completed')),
@@ -87,16 +88,33 @@ create table if not exists public.tournaments (
   completed_at timestamptz
 );
 
+alter table public.tournaments
+  add column if not exists participant_ids jsonb not null default '[]'::jsonb;
+
+update public.tournaments
+set participant_ids = jsonb_build_array(user_id::text)
+where participant_ids is null
+   or participant_ids = '[]'::jsonb;
+
 create index if not exists tournaments_user_id_idx on public.tournaments (user_id);
 create index if not exists tournaments_created_at_idx on public.tournaments (created_at desc);
 
 alter table public.tournaments enable row level security;
 
-create policy "tournaments_select_own"
+drop policy if exists "tournaments_select_own" on public.tournaments;
+drop policy if exists "tournaments_select_member" on public.tournaments;
+create policy "tournaments_select_member"
   on public.tournaments
   for select
   to authenticated
-  using ((select auth.uid()) = user_id);
+  using (
+    (select auth.uid()) = user_id
+    or exists (
+      select 1
+      from jsonb_array_elements_text(participant_ids) as pid
+      where pid = (select auth.uid())::text
+    )
+  );
 
 create policy "tournaments_insert_own"
   on public.tournaments

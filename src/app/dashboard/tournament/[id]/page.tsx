@@ -15,6 +15,7 @@ import {
   setThirdPlaceWinner,
 } from "@/lib/tournament";
 import { KnockoutState, LeagueState, TournamentMode, TournamentRecord } from "@/types/tournament";
+import { VoiceRoom } from "@/components/VoiceRoom";
 
 type PageParams = Promise<{ id: string }>;
 
@@ -54,24 +55,27 @@ export default function TournamentDetailPage({ params }: { params: PageParams })
   const isComplete = record.status === "completed";
 
   return (
-    <section className="panel">
-      <div className="panel-header">
-        <h2>
-          {record.name} · {record.mode.toUpperCase()} · {record.status.toUpperCase()}
-        </h2>
-      </div>
-      <div className="panel-body">
-        {record.mode === "knockout" ? (
-          <KnockoutView
-            record={record}
-            readOnly={isComplete}
-            onPersist={persist}
-          />
-        ) : (
-          <LeagueView record={record} readOnly={isComplete} onPersist={persist} />
-        )}
-      </div>
-    </section>
+    <div style={{ display: "grid", gap: "1rem" }}>
+      <VoiceRoom roomId={record.id} label={record.name} />
+      <section className="panel">
+        <div className="panel-header">
+          <h2>
+            {record.name} · {record.mode.toUpperCase()} · {record.status.toUpperCase()}
+          </h2>
+        </div>
+        <div className="panel-body">
+          {record.mode === "knockout" ? (
+            <KnockoutView
+              record={record}
+              readOnly={isComplete}
+              onPersist={persist}
+            />
+          ) : (
+            <LeagueView record={record} readOnly={isComplete} onPersist={persist} />
+          )}
+        </div>
+      </section>
+    </div>
   );
 }
 

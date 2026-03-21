@@ -26,8 +26,16 @@ export async function POST(request: Request) {
 
   const body = await request.json();
   const players = Array.isArray(body.players) ? body.players.filter((p: unknown) => typeof p === "string" && p.trim()) : [];
+  const rawParticipantIds = Array.isArray(body.participant_ids)
+    ? body.participant_ids.filter((id: unknown) => typeof id === "string" && id.trim())
+    : [];
+  const participantIds = [...new Set([...rawParticipantIds, user.id])];
+
   if (players.length < 2) {
     return NextResponse.json({ error: "A tournament requires at least 2 combatants" }, { status: 400 });
+  }
+  if (participantIds.length < 2) {
+    return NextResponse.json({ error: "A tournament must include at least 2 unique participants" }, { status: 400 });
   }
 
   const payload = {
@@ -36,6 +44,7 @@ export async function POST(request: Request) {
     mode: body.mode,
     status: body.status ?? "active",
     players,
+    participant_ids: participantIds,
     state: body.state ?? null,
     results: body.results ?? null,
   };

@@ -35,6 +35,7 @@ export interface Standing {
 export interface TournamentRecord {
   id: string;
   user_id: string;
+  participant_ids: string[];
   name: string;
   mode: TournamentMode;
   status: TournamentStatus;

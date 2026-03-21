@@ -95,6 +95,7 @@ export default function NewTournamentPage() {
     setError(null);
 
     const cleanPlayers = players.map((p) => p.name.trim()).filter(Boolean);
+    const participantIds = [...new Set(players.map((p) => p.id).filter(Boolean))];
     const usedNames = new Map<string, number>();
     const normalizedPlayers = cleanPlayers.map((playerName) => {
       const count = usedNames.get(playerName) ?? 0;
@@ -111,6 +112,7 @@ export default function NewTournamentPage() {
         mode,
         status: "active",
         players: normalizedPlayers,
+        participant_ids: participantIds,
         state,
         results: null,
       }),
