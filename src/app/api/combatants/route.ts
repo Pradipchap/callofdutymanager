@@ -37,8 +37,41 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await request.json();
-  const combatantUserId = String(body.combatantUserId ?? "").trim();
-  if (!combatantUserId) return NextResponse.json({ error: "combatantUserId is required" }, { status: 400 });
+  const combatantUserIdFromBody = String(body.combatantUserId ?? "").trim();
+  const lookup = String(body.lookup ?? "").trim();
+
+  let combatantUserId = combatantUserIdFromBody;
+
+  if (!combatantUserId && lookup) {
+    const normalized = lookup.toLowerCase();
+    const { data: byEmail, error: byEmailError } = await supabase
+      .from("profiles")
+      .select("id")
+      .ilike("email", normalized)
+      .limit(2);
+    if (byEmailError) return NextResponse.json({ error: byEmailError.message }, { status: 400 });
+    if ((byEmail ?? []).length === 1) {
+      combatantUserId = byEmail![0].id;
+    } else {
+      const { data: byName, error: byNameError } = await supabase
+        .from("profiles")
+        .select("id")
+        .ilike("display_name", lookup)
+        .limit(2);
+      if (byNameError) return NextResponse.json({ error: byNameError.message }, { status: 400 });
+      if ((byName ?? []).length === 1) {
+        combatantUserId = byName![0].id;
+      }
+    }
+  }
+
+  if (!combatantUserId) {
+    return NextResponse.json(
+      { error: "Select a registered user from suggestions, or type an exact email/username" },
+      { status: 400 },
+    );
+  }
+
   if (combatantUserId === user.id) {
     return NextResponse.json({ error: "You cannot add yourself as a combatant" }, { status: 400 });
   }

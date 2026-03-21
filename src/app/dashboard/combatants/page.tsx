@@ -61,11 +61,16 @@ export default function CombatantsPage() {
 
   async function create(e: FormEvent) {
     e.preventDefault();
-    if (!selectedUser) return;
+    const lookup = query.trim();
+    if (!selectedUser && !lookup) return;
+    setError(null);
     const res = await fetch("/api/combatants", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ combatantUserId: selectedUser.id }),
+      body: JSON.stringify({
+        combatantUserId: selectedUser?.id ?? null,
+        lookup,
+      }),
     });
     const json = await res.json();
     if (!res.ok) {
@@ -99,6 +104,7 @@ export default function CombatantsPage() {
               onChange={(e) => {
                 setQuery(e.target.value);
                 setSelectedUser(null);
+                setError(null);
               }}
             />
             {suggestions.length > 0 && !selectedUser ? (
@@ -126,10 +132,13 @@ export default function CombatantsPage() {
               </div>
             ) : null}
           </div>
-          <button className="btn btn-primary" type="submit" disabled={!selectedUser}>
+          <button className="btn btn-primary" type="submit" disabled={!selectedUser && !query.trim()}>
             Save
           </button>
         </form>
+        <p className="muted" style={{ marginTop: "-0.5rem", marginBottom: "0.75rem" }}>
+          Tip: choose a suggestion, or type exact email/username and press Save.
+        </p>
         {error ? <p style={{ color: "var(--danger)" }}>{error}</p> : null}
         <div className="player-list">
           {items.map((item) => (
