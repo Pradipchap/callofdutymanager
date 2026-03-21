@@ -29,6 +29,9 @@ export function AppHeader() {
         <Link href="/dashboard/combatants" className="btn btn-ghost">
           Combatants
         </Link>
+        <Link href="/dashboard/profile" className="btn btn-ghost">
+          Profile
+        </Link>
         <Link href="/dashboard/tournament/new" className="btn btn-primary">
           New Tournament
         </Link>

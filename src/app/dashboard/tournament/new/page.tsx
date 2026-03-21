@@ -8,15 +8,33 @@ import { TournamentMode } from "@/types/tournament";
 interface Combatant {
   id: string;
   name: string;
+  combatant_user_id: string;
+  profile?: {
+    id: string;
+    email: string;
+    display_name: string | null;
+    avatar_url?: string | null;
+  } | null;
+}
+
+interface SelectedPlayer {
+  id: string;
+  name: string;
+}
+
+interface CurrentProfile {
+  id: string;
+  email: string;
+  display_name: string | null;
 }
 
 export default function NewTournamentPage() {
   const router = useRouter();
   const [name, setName] = useState("OSOK Private Room");
-  const [players, setPlayers] = useState<string[]>([]);
-  const [playerInput, setPlayerInput] = useState("");
+  const [players, setPlayers] = useState<SelectedPlayer[]>([]);
   const [mode, setMode] = useState<TournamentMode>("knockout");
   const [combatants, setCombatants] = useState<Combatant[]>([]);
+  const [currentProfile, setCurrentProfile] = useState<CurrentProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -24,21 +42,46 @@ export default function NewTournamentPage() {
     fetch("/api/combatants")
       .then((r) => r.json())
       .then((json) => {
-        if (Array.isArray(json)) setCombatants(json);
+        if (Array.isArray(json)) {
+          setCombatants(json);
+        } else {
+          setError(json?.error ?? "Failed to load combatants");
+        }
+      })
+      .catch(() => {
+        setError("Failed to load combatants");
+      });
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/profile")
+      .then((r) => r.json())
+      .then((json) => {
+        if (!json?.id) return;
+        const me: CurrentProfile = {
+          id: json.id,
+          email: json.email,
+          display_name: json.display_name,
+        };
+        setCurrentProfile(me);
+        const myName = (me.display_name?.trim() || me.email.split("@")[0]).trim();
+        setPlayers((prev) => {
+          if (prev.some((p) => p.id === me.id)) return prev;
+          return [{ id: me.id, name: myName }, ...prev];
+        });
+      })
+      .catch(() => {
+        // Keep page usable if profile load fails.
       });
   }, []);
 
   const canStart = useMemo(() => players.length >= 2 && name.trim().length > 0, [name, players.length]);
 
-  function addPlayer(nameValue: string) {
-    const trimmed = nameValue.trim();
-    if (!trimmed) return;
-    if (players.includes(trimmed)) return;
-    setPlayers((prev) => [...prev, trimmed]);
-  }
-
-  function updatePlayer(index: number, value: string) {
-    setPlayers((prev) => prev.map((p, i) => (i === index ? value : p)));
+  function addPlayerFromCombatant(combatant: Combatant) {
+    const label = (combatant.profile?.display_name?.trim() || combatant.name).trim();
+    if (!label) return;
+    if (players.some((p) => p.id === combatant.combatant_user_id)) return;
+    setPlayers((prev) => [...prev, { id: combatant.combatant_user_id, name: label }]);
   }
 
   function removePlayer(index: number) {
@@ -51,8 +94,14 @@ export default function NewTournamentPage() {
     setLoading(true);
     setError(null);
 
-    const cleanPlayers = players.map((p) => p.trim()).filter(Boolean);
-    const state = mode === "knockout" ? initKnockout(cleanPlayers) : initLeague(cleanPlayers);
+    const cleanPlayers = players.map((p) => p.name.trim()).filter(Boolean);
+    const usedNames = new Map<string, number>();
+    const normalizedPlayers = cleanPlayers.map((playerName) => {
+      const count = usedNames.get(playerName) ?? 0;
+      usedNames.set(playerName, count + 1);
+      return count === 0 ? playerName : `${playerName} (${count + 1})`;
+    });
+    const state = mode === "knockout" ? initKnockout(normalizedPlayers) : initLeague(normalizedPlayers);
 
     const res = await fetch("/api/tournaments", {
       method: "POST",
@@ -61,7 +110,7 @@ export default function NewTournamentPage() {
         name: name.trim(),
         mode,
         status: "active",
-        players: cleanPlayers,
+        players: normalizedPlayers,
         state,
         results: null,
       }),
@@ -71,17 +120,6 @@ export default function NewTournamentPage() {
       setLoading(false);
       setError(json.error ?? "Failed to create tournament");
       return;
-    }
-
-    const existing = new Set(combatants.map((c) => c.name.toLowerCase()));
-    for (const p of cleanPlayers) {
-      if (!existing.has(p.toLowerCase())) {
-        await fetch("/api/combatants", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: p }),
-        });
-      }
     }
 
     router.replace(`/dashboard/tournament/${json.id}`);
@@ -98,38 +136,23 @@ export default function NewTournamentPage() {
             <label>Tournament Name</label>
             <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
-          <div className="form-row">
-            <label>Add Player</label>
-            <div style={{ display: "flex", gap: "0.5rem" }}>
-              <input
-                className="input"
-                value={playerInput}
-                onChange={(e) => setPlayerInput(e.target.value)}
-                placeholder="Operator..."
-              />
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={() => {
-                  addPlayer(playerInput);
-                  setPlayerInput("");
-                }}
-              >
-                Add
-              </button>
-            </div>
-          </div>
+          <p className="muted">
+            Players can only be selected from saved combatants (registered users).
+          </p>
+          <p className="muted">
+            {currentProfile ? "Your profile is auto-added. Add at least one more combatant." : "Loading your profile..."}
+          </p>
           <div className="player-list">
             {players.map((p, i) => (
-              <div className="player-item" key={`${p}-${i}`}>
-                <input className="input" value={p} onChange={(e) => updatePlayer(i, e.target.value)} />
+              <div className="player-item" key={`${p.id}-${i}`}>
+                <span style={{ flex: 1 }}>{p.name}</span>
                 <button type="button" className="btn btn-danger" onClick={() => removePlayer(i)}>
                   Remove
                 </button>
               </div>
             ))}
           </div>
-          <p className="muted">{players.length} players selected</p>
+          <p className="muted">{players.length} players selected (minimum 2 required)</p>
         </div>
       </section>
 
@@ -161,12 +184,13 @@ export default function NewTournamentPage() {
           </p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
             {combatants.map((c) => (
-              <button type="button" className="btn btn-ghost" key={c.id} onClick={() => addPlayer(c.name)}>
-                {c.name}
+              <button type="button" className="btn btn-ghost" key={c.id} onClick={() => addPlayerFromCombatant(c)}>
+                {c.profile?.display_name?.trim() || c.name}
               </button>
             ))}
           </div>
           {error ? <p style={{ color: "var(--danger)" }}>{error}</p> : null}
+          {!canStart ? <p className="muted">Add at least 2 combatants to start.</p> : null}
           <div style={{ marginTop: "1rem" }}>
             <button className="btn btn-primary" type="submit" disabled={!canStart || loading}>
               {loading ? "Creating..." : "Commence Operation"}

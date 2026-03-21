@@ -25,12 +25,17 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await request.json();
+  const players = Array.isArray(body.players) ? body.players.filter((p: unknown) => typeof p === "string" && p.trim()) : [];
+  if (players.length < 2) {
+    return NextResponse.json({ error: "A tournament requires at least 2 combatants" }, { status: 400 });
+  }
+
   const payload = {
     user_id: user.id,
     name: body.name,
     mode: body.mode,
     status: body.status ?? "active",
-    players: body.players ?? [],
+    players,
     state: body.state ?? null,
     results: body.results ?? null,
   };

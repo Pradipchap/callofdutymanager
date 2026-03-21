@@ -4,8 +4,12 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text not null,
   display_name text,
+  avatar_url text,
   created_at timestamptz not null default now()
 );
+
+alter table public.profiles
+  add column if not exists avatar_url text;
 
 alter table public.profiles enable row level security;
 
@@ -14,6 +18,12 @@ create policy "profiles_select_own"
   for select
   to authenticated
   using ((select auth.uid()) = id);
+
+create policy "profiles_select_registered_users"
+  on public.profiles
+  for select
+  to authenticated
+  using (true);
 
 create policy "profiles_update_own"
   on public.profiles
@@ -25,11 +35,17 @@ create policy "profiles_update_own"
 create table if not exists public.combatants (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
+  combatant_user_id uuid not null references public.profiles(id) on delete cascade,
   name text not null,
   created_at timestamptz not null default now()
 );
 
+alter table public.combatants
+  add column if not exists combatant_user_id uuid references public.profiles(id) on delete cascade;
+
 create index if not exists combatants_user_id_idx on public.combatants (user_id);
+create index if not exists combatants_combatant_user_id_idx on public.combatants (combatant_user_id);
+create unique index if not exists combatants_owner_target_uniq on public.combatants (user_id, combatant_user_id);
 
 alter table public.combatants enable row level security;
 
@@ -118,3 +134,48 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
+
+insert into storage.buckets (id, name, public)
+values ('avatars', 'avatars', true)
+on conflict (id) do nothing;
+
+drop policy if exists "avatars_public_read" on storage.objects;
+create policy "avatars_public_read"
+  on storage.objects
+  for select
+  to public
+  using (bucket_id = 'avatars');
+
+drop policy if exists "avatars_owner_upload" on storage.objects;
+create policy "avatars_owner_upload"
+  on storage.objects
+  for insert
+  to authenticated
+  with check (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = (select auth.uid())::text
+  );
+
+drop policy if exists "avatars_owner_update" on storage.objects;
+create policy "avatars_owner_update"
+  on storage.objects
+  for update
+  to authenticated
+  using (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = (select auth.uid())::text
+  )
+  with check (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = (select auth.uid())::text
+  );
+
+drop policy if exists "avatars_owner_delete" on storage.objects;
+create policy "avatars_owner_delete"
+  on storage.objects
+  for delete
+  to authenticated
+  using (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = (select auth.uid())::text
+  );
